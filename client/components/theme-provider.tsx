@@ -2,11 +2,12 @@
 
 import * as React from "react"
 import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes"
-
+import { cn } from "@/lib/utils"
 function ThemeProvider({
   children,
+  className,
   ...props
-}: React.ComponentProps<typeof NextThemesProvider>) {
+}: React.ComponentProps<typeof NextThemesProvider> & { className?: string }) {
   return (
     <NextThemesProvider
       attribute="class"
@@ -15,11 +16,14 @@ function ThemeProvider({
       disableTransitionOnChange
       {...props}
     >
-      <ThemeHotkey />
-      {children}
+      <div className={cn("h-full", className)}>
+        <ThemeHotkey />
+        {children}
+      </div>
     </NextThemesProvider>
   )
 }
+
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {

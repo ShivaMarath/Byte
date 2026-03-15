@@ -1,5 +1,4 @@
 import { Geist, Geist_Mono } from "next/font/google"
-
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { cn } from "@/lib/utils";
@@ -23,10 +22,10 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("antialiased", fontMono.variable, "font-sans", fontSans.variable)}
+      className={cn("h-full antialiased", fontMono.variable, "font-sans", fontSans.variable)}
     >
-      <body>
-        <ThemeProvider>{children}</ThemeProvider>
+      <body className="h-full">
+        <ThemeProvider className="h-full">{children}</ThemeProvider>
       </body>
     </html>
   )

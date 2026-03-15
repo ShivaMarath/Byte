@@ -1,6 +1,6 @@
 @import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
+/* @import "tw-animate-css"; */
+/* @import "shadcn/tailwind.css"; */
 
 @custom-variant dark (&:is(.dark *));
 
@@ -74,6 +74,9 @@
 }
 
 @theme inline {
+    --height-screen: 100dvh;
+    --min-height-screen: 100dvh;
+    --spacing-screen: 100vh;
     --font-sans: var(--font-sans);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
@@ -125,4 +128,12 @@
   html {
     @apply font-sans;
     }
+    html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+
+
 }
