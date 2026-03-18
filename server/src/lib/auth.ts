@@ -4,6 +4,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import prisma from "./db.js";
 import { deviceAuthorization } from "better-auth/plugins";
 
+
 console.log("🔍 Current working directory:", process.cwd());
 console.log("🔍 All env keys:", Object.keys(process.env).filter(key => !key.includes('SECRET')));
 console.log("🔍 GITHUB_CLIENT_ID exists:", !!process.env.GITHUB_CLIENT_ID);
