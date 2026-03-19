@@ -1,4 +1,4 @@
-import { cancel, confirm, intro, isCancel, outro  } from "@clack/prompts";
+import { cancel, confirm, intro, isCancel, outro } from "@clack/prompts";
 import { logger } from "better-auth";
 import { createAuthClient } from "better-auth/client";
 import { deviceAuthorizationClient } from "better-auth/client/plugins";
@@ -9,9 +9,9 @@ import open from "open";
 import os from "os";
 import path from "path";
 import yoctoSpinner from "yocto-spinner";
-import * as z from "zod/v4";
+import * as z from "zod";
 import dotenv from "dotenv";
-import prisma from "../../../lib/db.js";
+import prisma from "../../../lib/db.js";  // Make sure this path is correct
 
 dotenv.config();
 
@@ -88,7 +88,7 @@ export async function requireAuth() {
 
   if (!token) {
     console.log(
-      chalk.red("❌ Not authenticated. Please run 'your-cli login' first.")
+      chalk.red("❌ Not authenticated. Please run 'byte login' first.")
     );
     process.exit(1);
   }
@@ -97,7 +97,7 @@ export async function requireAuth() {
     console.log(
       chalk.yellow("⚠️  Your session has expired. Please login again.")
     );
-    console.log(chalk.gray("   Run: your-cli login\n"));
+    console.log(chalk.gray("   Run: byte login\n"));
     process.exit(1);
   }
 
@@ -119,7 +119,7 @@ export async function loginAction(opts) {
   const serverUrl = options.serverUrl || DEMO_URL;
   const clientId = options.clientId || CLIENT_ID;
 
-  intro(chalk.bold("🔐 Better Auth CLI Login"));
+  intro(chalk.bold("🔐 CLI Login"));
 
   if (!clientId) {
     logger.error("CLIENT_ID is not set in .env file");
@@ -243,20 +243,11 @@ export async function loginAction(opts) {
         );
       }
 
-      // Get user info
-      const { data: session } = await authClient.getSession({
-        fetchOptions: {
-          headers: {
-            Authorization: `Bearer ${token.access_token}`,
-          },
-        },
-      });
-
+      // Get user info from the token response
+      // The token response might contain user info depending on your setup
       outro(
         chalk.green(
-          `✅ Login successful! Welcome ${
-            session?.user?.name || session?.user?.email || "User"
-          }`
+          `✅ Login successful!`
         )
       );
 
@@ -298,9 +289,6 @@ async function pollForToken(authClient, deviceCode, clientId, initialInterval) {
         });
 
         if (data?.access_token) {
-          console.log(
-            chalk.bold.yellow(`Your access token: ${data.access_token}`)
-          );
           spinner.stop();
           resolve(data);
           return;
@@ -380,33 +368,48 @@ export async function logoutAction() {
 
 export async function whoamiAction(opts) {
   const token = await requireAuth();
+  
   if (!token?.access_token) {
-    console.log("No access token found. Please login.");
+    console.log(chalk.red("No access token found. Please login."));
     process.exit(1);
   }
 
-  const user = await prisma.user.findFirst({
-    where: {
-      sessions: {
-        some: {
-          token: token.access_token,
+  try {
+    // Try to get user info from the auth server
+    const authClient = createAuthClient({
+      baseURL: opts.serverUrl || DEMO_URL,
+    });
+
+    const { data: session, error } = await authClient.getSession({
+      fetchOptions: {
+        headers: {
+          Authorization: `Bearer ${token.access_token}`,
         },
       },
-    },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      image: true,
-    },
-  });
+    });
 
-  // Output user session info
-  console.log(
-    chalk.bold.greenBright(`\n👤 User: ${user.name}
-📧 Email: ${user.email}
-👤 ID: ${user.id}`)
-  );
+    if (error) {
+      console.log(chalk.red("Failed to get user info:"), error.message);
+      process.exit(1);
+    }
+
+    if (session?.user) {
+      console.log(
+        chalk.bold.greenBright(`\n👤 User: ${session.user.name || 'N/A'}`)
+      );
+      console.log(chalk.green(`📧 Email: ${session.user.email || 'N/A'}`));
+      console.log(chalk.green(`👤 ID: ${session.user.id || 'N/A'}`));
+      if (session.user.image) {
+        console.log(chalk.green(`🖼️  Image: ${session.user.image}`));
+      }
+      console.log(""); // Empty line for better formatting
+    } else {
+      console.log(chalk.yellow("\nNo user information available."));
+    }
+  } catch (err) {
+    console.error(chalk.red("\nError getting user info:"), err.message);
+    process.exit(1);
+  }
 }
 
 // ============================================

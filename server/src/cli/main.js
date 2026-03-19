@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import chalk from "chalk";
 import figlet from "figlet";
 import { Command } from "commander";
+import { login } from "./commands/auth/login.js";
 dotenv.config();
 async function main() {
     //display a banner
@@ -15,6 +16,7 @@ async function main() {
     program
         .version("1.0.0")
         .description("CLI based AI assistant")
+        .addCommand(login)
         program.action(()=>{
             program.help();
         })
