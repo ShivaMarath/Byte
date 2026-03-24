@@ -2,7 +2,7 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import prisma from "./db.js";
-import { deviceAuthorization } from "better-auth/plugins";
+import { deviceAuthorization, bearer } from "better-auth/plugins";
 
 
 console.log("🔍 Current working directory:", process.cwd());
@@ -24,6 +24,7 @@ export const auth = betterAuth({
       interval: "5s", 
       
     }),
+    bearer(), 
   ],
   socialProviders: {
     github: {

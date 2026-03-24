@@ -368,44 +368,36 @@ export async function logoutAction() {
 
 export async function whoamiAction(opts) {
   const token = await requireAuth();
-  
+
   if (!token?.access_token) {
     console.log(chalk.red("No access token found. Please login."));
     process.exit(1);
   }
 
   try {
-    // Try to get user info from the auth server
-    const authClient = createAuthClient({
-      baseURL: opts.serverUrl || DEMO_URL,
-    });
-
-    const { data: session, error } = await authClient.getSession({
-      fetchOptions: {
-        headers: {
-          Authorization: `Bearer ${token.access_token}`,
-        },
+    const response = await fetch(`${opts.serverUrl || DEMO_URL}/api/me`, {
+      headers: {
+        Authorization: `Bearer ${token.access_token}`,
       },
     });
 
-    if (error) {
-      console.log(chalk.red("Failed to get user info:"), error.message);
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      console.log(chalk.yellow("\nNo user information available."));
+      if (body?.error) console.log(chalk.red(`   Reason: ${body.error}`));
       process.exit(1);
     }
 
-    if (session?.user) {
-      console.log(
-        chalk.bold.greenBright(`\n👤 User: ${session.user.name || 'N/A'}`)
-      );
-      console.log(chalk.green(`📧 Email: ${session.user.email || 'N/A'}`));
-      console.log(chalk.green(`👤 ID: ${session.user.id || 'N/A'}`));
-      if (session.user.image) {
-        console.log(chalk.green(`🖼️  Image: ${session.user.image}`));
-      }
-      console.log(""); // Empty line for better formatting
-    } else {
-      console.log(chalk.yellow("\nNo user information available."));
+    const session = await response.json();
+    const user = session.user;
+
+    console.log(chalk.bold.greenBright(`\n👤 User:  ${user.name || "N/A"}`));
+    console.log(chalk.green(`📧 Email: ${user.email || "N/A"}`));
+    console.log(chalk.green(`🪪  ID:    ${user.id || "N/A"}`));
+    if (user.image) {
+      console.log(chalk.green(`🖼️  Image: ${user.image}`));
     }
+    console.log("");
   } catch (err) {
     console.error(chalk.red("\nError getting user info:"), err.message);
     process.exit(1);
