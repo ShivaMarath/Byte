@@ -35,7 +35,7 @@ app.get("/api/me", async (req, res) => {
     return res.json(session);
   } catch (error) {
     console.error("Session error:", error);
-    return res.status(500).json({ error: "Failed to get session", details: error.message });
+    return res.status(500).json({ error: "Failed to get session", details: (error as Error).message });
   }
 });
 
@@ -58,7 +58,7 @@ app.get("/api/me/:access_token", async (req, res) => {
     return res.json(session);
   } catch (error) {
     console.error("Token validation error:", error);
-    return res.status(401).json({ error: "Unauthorized", details: error.message });
+    return res.status(401).json({ error: "Unauthorized", details: (error as Error).message });
   }
 });
 
