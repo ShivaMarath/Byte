@@ -19,7 +19,7 @@ const wakeUpAction = async()=>{
         where:{
             sessions:{
                 some:{
-                    token:token.access_token;
+                    token:token.access_token,
                 }
             }
         },
