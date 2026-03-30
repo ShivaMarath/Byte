@@ -71,6 +71,6 @@ const wakeUpAction = async()=>{
       break;
   }
 }
-export const wakeUp = new Command("wakeup")
+export const wakeup = new Command("wakeup")
   .description("Wake up the AI")
   .action(wakeUpAction);
