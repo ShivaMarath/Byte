@@ -17,4 +17,11 @@ export const availableTools = [
     getTool: () => google.tools.codeExecution({}),
     enabled: false,
   },
+    {
+    id: 'url_context',
+    name: 'URL Context',
+    description: 'Provide specific URLs that you want the model to analyze directly from the prompt. Supports up to 20 URLs per request.',
+    getTool: () => google.tools.urlContext({}),
+    enabled: false,
+  },
 ]
