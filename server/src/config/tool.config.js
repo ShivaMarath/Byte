@@ -9,5 +9,12 @@ export const availableTools = [
         google.tools.googleSearch({})
     },
     enabled: false,
-}
+},
+ {
+    id: 'code_execution',
+    name: 'Code Execution',
+    description: 'Generate and execute Python code to perform calculations, solve problems, or provide accurate information.',
+    getTool: () => google.tools.codeExecution({}),
+    enabled: false,
+  },
 ]
