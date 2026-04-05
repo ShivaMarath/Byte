@@ -5,7 +5,7 @@ import yoctoSpinner from "yocto-spinner";
 import { marked } from "marked";
 import { markedTerminal } from "marked-terminal";
 import { AIService } from "../ai/google-service.js";
-import { ChatService } from "../../services/chat.services.js";
+import { ChatService } from "../../services/chat-service.js";
 import { getStoredToken } from "../commands/auth/login.js";
 import prisma from "../../lib/db.js";
 import { 
@@ -16,6 +16,7 @@ import {
   resetTools 
 } from "../../config/tool.config.js";
 
+// Configure marked for terminal
 marked.use(
   markedTerminal({
     code: chalk.cyan,
@@ -42,7 +43,7 @@ async function getUserFromToken() {
   const token = await getStoredToken();
   
   if (!token?.access_token) {
-    throw new Error("Not authenticated. Please run 'byte login' first.");
+    throw new Error("Not authenticated. Please run 'orbit login' first.");
   }
 
   const spinner = yoctoSpinner({ text: "Authenticating..." }).start();
@@ -63,7 +64,6 @@ async function getUserFromToken() {
   spinner.success(`Welcome back, ${user.name}!`);
   return user;
 }
-
 
 async function selectTools() {
   const toolOptions = availableTools.map(tool => ({
@@ -149,7 +149,6 @@ async function initConversation(userId, conversationId = null, mode = "tool") {
   
   return conversation;
 }
-
 
 function displayMessages(messages) {
   messages.forEach((msg) => {
@@ -344,7 +343,7 @@ async function chatLoop(conversation) {
 export async function startToolChat(conversationId = null) {
   try {
     intro(
-      boxen(chalk.bold.cyan("🛠️  Byte AI - Tool Calling Mode"), {
+      boxen(chalk.bold.cyan("🛠️  Orbit AI - Tool Calling Mode"), {
         padding: 1,
         borderStyle: "double",
         borderColor: "cyan",
