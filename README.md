@@ -59,4 +59,3 @@ Uses the device authorization flow — your terminal gets a code, you authorize 
 
 
 
-MIT © [Shiva Marath Ramesh](https://github.com/ShivaMarath)
