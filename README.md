@@ -35,7 +35,6 @@ byte wakeup
 ## Quick Start
 
 ```bash
-npm install -g byte-agent
 
 byte login      # GitHub device flow — no browser redirects
 byte wakeup     # pick a mode and go
