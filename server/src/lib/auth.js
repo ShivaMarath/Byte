@@ -5,12 +5,12 @@ import prisma from "./db.js";
 import { deviceAuthorization, bearer } from "better-auth/plugins";
 
 
-console.log("🔍 Current working directory:", process.cwd());
-console.log("🔍 All env keys:", Object.keys(process.env).filter(key => !key.includes('SECRET')));
-console.log("🔍 GITHUB_CLIENT_ID exists:", !!process.env.GITHUB_CLIENT_ID);
-console.log("🔍 GITHUB_CLIENT_SECRET exists:", !!process.env.GITHUB_CLIENT_SECRET);
-console.log("🔍 BETTER_AUTH_URL:", process.env.BETTER_AUTH_URL);
-console.log("🔍 DATABASE_URL exists:", !!process.env.DATABASE_URL);
+// console.log("🔍 Current working directory:", process.cwd());
+// console.log("🔍 All env keys:", Object.keys(process.env).filter(key => !key.includes('SECRET')));
+// console.log("🔍 GITHUB_CLIENT_ID exists:", !!process.env.GITHUB_CLIENT_ID);
+// console.log("🔍 GITHUB_CLIENT_SECRET exists:", !!process.env.GITHUB_CLIENT_SECRET);
+// console.log("🔍 BETTER_AUTH_URL:", process.env.BETTER_AUTH_URL);
+// console.log("🔍 DATABASE_URL exists:", !!process.env.DATABASE_URL);
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql",

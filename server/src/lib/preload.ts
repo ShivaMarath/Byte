@@ -5,8 +5,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Current file: /server/src/lib/preload.ts
-// Need to go up TWO levels to reach server root: src/lib -> src -> server root
+
 const envPath = path.resolve(__dirname, '../../.env');
 console.log('📁 PRELOAD: Loading .env from:', envPath);
 
