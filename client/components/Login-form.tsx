@@ -25,7 +25,7 @@ const LoginForm = () => {
             onClick={() =>
               authClient.signIn.social({
                 provider: "github",
-                callbackURL: window.location.origin,
+                callbackURL: "https://byte-client-iota.vercel.app",
               })
             }
           >

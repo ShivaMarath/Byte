@@ -14,6 +14,15 @@ export const auth = betterAuth({
     "http://localhost:3000",
     "https://byte-client-iota.vercel.app",
   ],
+  advanced: {
+    crossSubdomainCookies: {
+      enabled: false,
+    },
+    defaultCookieAttributes: {
+      sameSite: "none",
+      secure: true,
+    },
+  },
   plugins: [
     deviceAuthorization({
       expiresIn: "30m",
