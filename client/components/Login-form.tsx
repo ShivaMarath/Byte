@@ -25,7 +25,7 @@ const LoginForm = () => {
             onClick={() =>
               authClient.signIn.social({
                 provider: "github",
-                callbackURL: process.env.NEXT_PUBLIC_API_URL,
+                callbackURL: window.location.origin,
               })
             }
           >
