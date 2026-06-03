@@ -2,7 +2,8 @@
   "compilerOptions": {
     
     
-  
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "src/generated"],
     "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,

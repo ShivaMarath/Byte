@@ -1,5 +1,5 @@
 
-import './lib/preload.ts';
+import './lib/preload.js';
 
 import express from "express";
 import { auth } from "./lib/auth.js";
