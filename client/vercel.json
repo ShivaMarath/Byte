@@ -1,5 +1,6 @@
 {
+  "root": "client",
   "buildCommand": "npm run build",
-  "outputDirectory": ".next",
+  "outputDirectory": "client/.next",
   "framework": "nextjs"
 }
