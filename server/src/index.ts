@@ -11,7 +11,7 @@ const port = 3005;
 
 app.use(
   cors({
-    origin: "process.env.FRONTEND_URL", 
+    origin: process.env.FRONTEND_URL, 
     methods: ["GET", "POST", "PUT", "DELETE"], 
     credentials: true, 
   })
@@ -64,7 +64,7 @@ app.get("/api/me/:access_token", async (req, res) => {
 
 app.get("/device", async (req, res) => {
   const { user_code } = req.query; // Fixed: should be req.query, not req.params
-  res.redirect(`http://localhost:3000/device?user_code=${user_code}`);
+  res.redirect(`${process.env.FRONTEND_URL}/device?user_code=${user_code}`);
 });
 
 app.listen(port, () => {
