@@ -1,42 +1,33 @@
-
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import prisma from "./db.js";
 import { deviceAuthorization, bearer } from "better-auth/plugins";
 
-
-// console.log("🔍 Current working directory:", process.cwd());
-// console.log("🔍 All env keys:", Object.keys(process.env).filter(key => !key.includes('SECRET')));
-// console.log("🔍 GITHUB_CLIENT_ID exists:", !!process.env.GITHUB_CLIENT_ID);
-// console.log("🔍 GITHUB_CLIENT_SECRET exists:", !!process.env.GITHUB_CLIENT_SECRET);
-// console.log("🔍 BETTER_AUTH_URL:", process.env.BETTER_AUTH_URL);
-// console.log("🔍 DATABASE_URL exists:", !!process.env.DATABASE_URL);
 export const auth = betterAuth({
+  secret: process.env.BETTER_AUTH_SECRET,
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),
   baseURL: process.env.BETTER_AUTH_URL,
   basePath: "/api/auth",
-  trustedOrigins: ["http://localhost:3000",
-    "https://byte-client-iota.vercel.app",],
+  trustedOrigins: [
+    "http://localhost:3000",
+    "https://byte-client-iota.vercel.app",
+  ],
   plugins: [
     deviceAuthorization({
-      expiresIn: "30m", 
-      interval: "5s", 
-      
+      expiresIn: "30m",
+      interval: "5s",
     }),
-    bearer(), 
+    bearer(),
   ],
   socialProviders: {
     github: {
-      clientId: process.env.GITHUB_CLIENT_ID ,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET ,
-      
+      clientId: process.env.GITHUB_CLIENT_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET,
     },
-  
   },
-
-    logger: {
-        level: "debug"
-    }
+  logger: {
+    level: "debug",
+  },
 });

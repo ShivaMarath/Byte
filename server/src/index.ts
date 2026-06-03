@@ -5,8 +5,12 @@ import express from "express";
 import { auth } from "./lib/auth.js";
 import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
 import cors from "cors";
+import cookieParser from "cookie-parser";
+
 
 const app = express();
+
+app.use(cookieParser());
 const port = 3005;
 
 app.use(
