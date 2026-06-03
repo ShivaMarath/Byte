@@ -15,9 +15,10 @@ export const auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),
-  baseURL: "http://localhost:3005",
+  baseURL: process.env.BETTER_AUTH_URL,
   basePath: "/api/auth",
-  trustedOrigins: ["http://localhost:3000"],
+  trustedOrigins: ["http://localhost:3000",
+    "https://byte-client-iota.vercel.app",],
   plugins: [
     deviceAuthorization({
       expiresIn: "30m", 
