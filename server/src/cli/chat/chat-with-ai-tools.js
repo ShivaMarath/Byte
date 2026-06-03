@@ -7,7 +7,6 @@ import { markedTerminal } from "marked-terminal";
 import { AIService } from "../ai/google-service.js";
 import { ChatService } from "../../services/chat-service.js";
 import { getStoredToken } from "../commands/auth/login.js";
-import prisma from "../../lib/db.js";
 import { 
   availableTools, 
   getEnabledTools, 
@@ -16,7 +15,8 @@ import {
   resetTools 
 } from "../../config/tool.config.js";
 
-// Configure marked for terminal
+const API_BASE = process.env.BYTE_API_URL ?? "https://byte-7lsq.onrender.com";
+
 marked.use(
   markedTerminal({
     code: chalk.cyan,
@@ -36,33 +36,27 @@ marked.use(
   })
 );
 
-const aiService = new AIService();
-const chatService = new ChatService();
-
 async function getUserFromToken() {
   const token = await getStoredToken();
-  
+
   if (!token?.access_token) {
-    throw new Error("Not authenticated. Please run 'orbit login' first.");
+    throw new Error("Not authenticated. Please run 'byte login' first.");
   }
 
   const spinner = yoctoSpinner({ text: "Authenticating..." }).start();
 
-  const user = await prisma.user.findFirst({
-    where: {
-      sessions: {
-        some: { token: token.access_token },
-      },
-    },
+  const res = await fetch(`${API_BASE}/api/me`, {
+    headers: { authorization: `Bearer ${token.access_token}` },
   });
 
-  if (!user) {
-    spinner.error("User not found");
+  if (!res.ok) {
+    spinner.error("Authentication failed");
     throw new Error("User not found. Please login again.");
   }
 
-  spinner.success(`Welcome back, ${user.name}!`);
-  return user;
+  const session = await res.json();
+  spinner.success(`Welcome back, ${session.user.name}!`);
+  return session.user;
 }
 
 async function selectTools() {
@@ -83,7 +77,6 @@ async function selectTools() {
     process.exit(0);
   }
 
-  // Enable selected tools
   enableTools(selectedTools);
 
   if (selectedTools.length === 0) {
@@ -109,24 +102,22 @@ async function selectTools() {
   return selectedTools.length > 0;
 }
 
-async function initConversation(userId, conversationId = null, mode = "tool") {
+async function initConversation(chatService, userId, conversationId = null, mode = "tool") {
   const spinner = yoctoSpinner({ text: "Loading conversation..." }).start();
-  
+
   const conversation = await chatService.getOrCreateConversation(
     userId,
     conversationId,
     mode
   );
-  
+
   spinner.success("Conversation loaded");
-  
-  // Get enabled tool names for display
+
   const enabledToolNames = getEnabledToolNames();
-  const toolsDisplay = enabledToolNames.length > 0 
+  const toolsDisplay = enabledToolNames.length > 0
     ? `\n${chalk.gray("Active Tools:")} ${enabledToolNames.join(", ")}`
     : `\n${chalk.gray("No tools enabled")}`;
-  
-  // Display conversation info in a box
+
   const conversationInfo = boxen(
     `${chalk.bold("Conversation")}: ${conversation.title}\n${chalk.gray("ID: " + conversation.id)}\n${chalk.gray("Mode: " + conversation.mode)}${toolsDisplay}`,
     {
@@ -138,15 +129,14 @@ async function initConversation(userId, conversationId = null, mode = "tool") {
       titleAlignment: "center",
     }
   );
-  
+
   console.log(conversationInfo);
-  
-  // Display existing messages if any
+
   if (conversation.messages?.length > 0) {
     console.log(chalk.yellow("📜 Previous messages:\n"));
     displayMessages(conversation.messages);
   }
-  
+
   return conversation;
 }
 
@@ -177,35 +167,32 @@ function displayMessages(messages) {
   });
 }
 
-async function saveMessage(conversationId, role, content) {
+async function saveMessage(chatService, conversationId, role, content) {
   return await chatService.addMessage(conversationId, role, content);
 }
 
-async function getAIResponse(conversationId) {
-  const spinner = yoctoSpinner({ 
-    text: "AI is thinking...", 
-    color: "cyan" 
+async function getAIResponse(aiService, chatService, conversationId) {
+  const spinner = yoctoSpinner({
+    text: "AI is thinking...",
+    color: "cyan",
   }).start();
 
   const dbMessages = await chatService.getMessages(conversationId);
   const aiMessages = chatService.formatMessagesForAI(dbMessages);
-
   const tools = getEnabledTools();
-  
+
   let fullResponse = "";
   let isFirstChunk = true;
   const toolCallsDetected = [];
-  
+
   try {
-    // IMPORTANT: Pass tools in the streamText config
     const result = await aiService.sendMessage(
-      aiMessages, 
+      aiMessages,
       (chunk) => {
         if (isFirstChunk) {
           spinner.stop();
           console.log("\n");
-          const header = chalk.green.bold("🤖 Assistant:");
-          console.log(header);
+          console.log(chalk.green.bold("🤖 Assistant:"));
           console.log(chalk.gray("─".repeat(60)));
           isFirstChunk = false;
         }
@@ -216,12 +203,11 @@ async function getAIResponse(conversationId) {
         toolCallsDetected.push(toolCall);
       }
     );
-    
-    // Display tool calls if any
+
     if (toolCallsDetected.length > 0) {
       console.log("\n");
       const toolCallBox = boxen(
-        toolCallsDetected.map(tc => 
+        toolCallsDetected.map(tc =>
           `${chalk.cyan("🔧 Tool:")} ${tc.toolName}\n${chalk.gray("Args:")} ${JSON.stringify(tc.args, null, 2)}`
         ).join("\n\n"),
         {
@@ -235,10 +221,9 @@ async function getAIResponse(conversationId) {
       console.log(toolCallBox);
     }
 
-    // Display tool results if any
     if (result.toolResults && result.toolResults.length > 0) {
       const toolResultBox = boxen(
-        result.toolResults.map(tr => 
+        result.toolResults.map(tr =>
           `${chalk.green("✅ Tool:")} ${tr.toolName}\n${chalk.gray("Result:")} ${JSON.stringify(tr.result, null, 2).slice(0, 200)}...`
         ).join("\n\n"),
         {
@@ -251,14 +236,13 @@ async function getAIResponse(conversationId) {
       );
       console.log(toolResultBox);
     }
-    
-    // Render markdown response
+
     console.log("\n");
     const renderedMarkdown = marked.parse(fullResponse);
     console.log(renderedMarkdown);
     console.log(chalk.gray("─".repeat(60)));
     console.log("\n");
-    
+
     return result.content;
   } catch (error) {
     spinner.error("Failed to get AI response");
@@ -266,18 +250,17 @@ async function getAIResponse(conversationId) {
   }
 }
 
-
-async function updateConversationTitle(conversationId, userInput, messageCount) {
+async function updateConversationTitle(chatService, conversationId, userInput, messageCount) {
   if (messageCount === 1) {
     const title = userInput.slice(0, 50) + (userInput.length > 50 ? "..." : "");
     await chatService.updateTitle(conversationId, title);
   }
 }
 
-async function chatLoop(conversation) {
+async function chatLoop(aiService, chatService, conversation) {
   const enabledToolNames = getEnabledToolNames();
   const helpBox = boxen(
-    `${chalk.gray('• Type your message and press Enter')}\n${chalk.gray('• AI has access to:')} ${enabledToolNames.length > 0 ? enabledToolNames.join(", ") : "No tools"}\n${chalk.gray('• Type "exit" to end conversation')}\n${chalk.gray('• Press Ctrl+C to quit anytime')}`,
+    `${chalk.gray("• Type your message and press Enter")}\n${chalk.gray("• AI has access to:")} ${enabledToolNames.length > 0 ? enabledToolNames.join(", ") : "No tools"}\n${chalk.gray('• Type "exit" to end conversation')}\n${chalk.gray("• Press Ctrl+C to quit anytime")}`,
     {
       padding: 1,
       margin: { bottom: 1 },
@@ -286,7 +269,7 @@ async function chatLoop(conversation) {
       dimBorder: true,
     }
   );
-  
+
   console.log(helpBox);
 
   while (true) {
@@ -332,18 +315,21 @@ async function chatLoop(conversation) {
     });
     console.log(userBox);
 
-    await saveMessage(conversation.id, "user", userInput);
+    await saveMessage(chatService, conversation.id, "user", userInput);
     const messages = await chatService.getMessages(conversation.id);
-    const aiResponse = await getAIResponse(conversation.id);
-    await saveMessage(conversation.id, "assistant", aiResponse);
-    await updateConversationTitle(conversation.id, userInput, messages.length);
+    const aiResponse = await getAIResponse(aiService, chatService, conversation.id);
+    await saveMessage(chatService, conversation.id, "assistant", aiResponse);
+    await updateConversationTitle(chatService, conversation.id, userInput, messages.length);
   }
 }
 
 export async function startToolChat(conversationId = null) {
+  const aiService = new AIService();
+  const chatService = new ChatService();
+
   try {
     intro(
-      boxen(chalk.bold.cyan("🛠️  Orbit AI - Tool Calling Mode"), {
+      boxen(chalk.bold.cyan("🛠️  Byte AI - Tool Calling Mode"), {
         padding: 1,
         borderStyle: "double",
         borderColor: "cyan",
@@ -351,16 +337,11 @@ export async function startToolChat(conversationId = null) {
     );
 
     const user = await getUserFromToken();
-    
-    // Select tools
     await selectTools();
-    
-    const conversation = await initConversation(user.id, conversationId, "tool");
-    await chatLoop(conversation);
-    
-    // Reset tools on exit
+    const conversation = await initConversation(chatService, user.id, conversationId, "tool");
+    await chatLoop(aiService, chatService, conversation);
+
     resetTools();
-    
     outro(chalk.green("✨ Thanks for using tools!"));
   } catch (error) {
     const errorBox = boxen(chalk.red(`❌ Error: ${error.message}`), {

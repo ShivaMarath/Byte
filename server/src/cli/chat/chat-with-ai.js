@@ -1,18 +1,17 @@
 import chalk from "chalk";
 import boxen from "boxen";
-import { text, isCancel, cancel, intro, outro } from "@clack/prompts";
+import { text, isCancel, intro, outro } from "@clack/prompts";
 import yoctoSpinner from "yocto-spinner";
 import { marked } from "marked";
 import { markedTerminal } from "marked-terminal";
 import { AIService } from "../ai/google-service.js";
 import { ChatService } from "../../services/chat-service.js";
 import { getStoredToken } from "../commands/auth/login.js";
-import prisma from "../../lib/db.js";
 
-// Configure marked to use terminal renderer
+const API_BASE = process.env.BYTE_API_URL ?? "https://byte-7lsq.onrender.com";
+
 marked.use(
   markedTerminal({
-    // Styling options for terminal output
     code: chalk.cyan,
     blockquote: chalk.gray.italic,
     heading: chalk.green.bold,
@@ -30,48 +29,40 @@ marked.use(
   })
 );
 
-// Initialize services
-const aiService = new AIService();
-const chatService = new ChatService();
-
 async function getUserFromToken() {
   const token = await getStoredToken();
-  
+
   if (!token?.access_token) {
     throw new Error("Not authenticated. Please run 'byte login' first.");
   }
 
   const spinner = yoctoSpinner({ text: "Authenticating..." }).start();
 
-  const user = await prisma.user.findFirst({
-    where: {
-      sessions: {
-        some: { token: token.access_token },
-      },
-    },
+  const res = await fetch(`${API_BASE}/api/me`, {
+    headers: { authorization: `Bearer ${token.access_token}` },
   });
 
-  if (!user) {
-    spinner.error("User not found");
+  if (!res.ok) {
+    spinner.error("Authentication failed");
     throw new Error("User not found. Please login again.");
   }
 
-  spinner.success(`Welcome back, ${user.name}!`);
-  return user;
+  const session = await res.json();
+  spinner.success(`Welcome back, ${session.user.name}!`);
+  return session.user;
 }
 
-async function initConversation(userId, conversationId = null, mode = "chat") {
+async function initConversation(chatService, userId, conversationId = null, mode = "chat") {
   const spinner = yoctoSpinner({ text: "Loading conversation..." }).start();
-  
+
   const conversation = await chatService.getOrCreateConversation(
     userId,
     conversationId,
     mode
   );
-  
+
   spinner.success("Conversation loaded");
-  
-  // Display conversation info in a box
+
   const conversationInfo = boxen(
     `${chalk.bold("Conversation")}: ${conversation.title}\n${chalk.gray("ID: " + conversation.id)}\n${chalk.gray("Mode: " + conversation.mode)}`,
     {
@@ -83,15 +74,14 @@ async function initConversation(userId, conversationId = null, mode = "chat") {
       titleAlignment: "center",
     }
   );
-  
+
   console.log(conversationInfo);
-  
-  // Display existing messages if any
+
   if (conversation.messages?.length > 0) {
     console.log(chalk.yellow("📜 Previous messages:\n"));
     displayMessages(conversation.messages);
   }
-  
+
   return conversation;
 }
 
@@ -108,7 +98,6 @@ function displayMessages(messages) {
       });
       console.log(userBox);
     } else {
-      // Render markdown for assistant messages
       const renderedContent = marked.parse(msg.content);
       const assistantBox = boxen(renderedContent.trim(), {
         padding: 1,
@@ -123,43 +112,40 @@ function displayMessages(messages) {
   });
 }
 
-async function saveMessage(conversationId, role, content) {
+async function saveMessage(chatService, conversationId, role, content) {
   return await chatService.addMessage(conversationId, role, content);
 }
 
-async function getAIResponse(conversationId) {
-  const spinner = yoctoSpinner({ 
-    text: "AI is thinking...", 
-    color: "cyan" 
+async function getAIResponse(aiService, chatService, conversationId) {
+  const spinner = yoctoSpinner({
+    text: "AI is thinking...",
+    color: "cyan",
   }).start();
 
   const dbMessages = await chatService.getMessages(conversationId);
   const aiMessages = chatService.formatMessagesForAI(dbMessages);
-  
+
   let fullResponse = "";
   let isFirstChunk = true;
-  
+
   try {
     const result = await aiService.sendMessage(aiMessages, (chunk) => {
-      // Stop spinner on first chunk and show header
       if (isFirstChunk) {
         spinner.stop();
         console.log("\n");
-        const header = chalk.green.bold("🤖 Assistant:");
-        console.log(header);
+        console.log(chalk.green.bold("🤖 Assistant:"));
         console.log(chalk.gray("─".repeat(60)));
         isFirstChunk = false;
       }
       fullResponse += chunk;
     });
-    
-    // Now render the complete markdown response
+
     console.log("\n");
     const renderedMarkdown = marked.parse(fullResponse);
     console.log(renderedMarkdown);
     console.log(chalk.gray("─".repeat(60)));
     console.log("\n");
-    
+
     return result.content;
   } catch (error) {
     spinner.error("Failed to get AI response");
@@ -167,16 +153,16 @@ async function getAIResponse(conversationId) {
   }
 }
 
-async function updateConversationTitle(conversationId, userInput, messageCount) {
+async function updateConversationTitle(chatService, conversationId, userInput, messageCount) {
   if (messageCount === 1) {
     const title = userInput.slice(0, 50) + (userInput.length > 50 ? "..." : "");
     await chatService.updateTitle(conversationId, title);
   }
 }
 
-async function chatLoop(conversation) {
+async function chatLoop(aiService, chatService, conversation) {
   const helpBox = boxen(
-    `${chalk.gray('• Type your message and press Enter')}\n${chalk.gray('• Markdown formatting is supported in responses')}\n${chalk.gray('• Type "exit" to end conversation')}\n${chalk.gray('• Press Ctrl+C to quit anytime')}`,
+    `${chalk.gray("• Type your message and press Enter")}\n${chalk.gray("• Markdown formatting is supported in responses")}\n${chalk.gray('• Type "exit" to end conversation')}\n${chalk.gray("• Press Ctrl+C to quit anytime")}`,
     {
       padding: 1,
       margin: { bottom: 1 },
@@ -185,7 +171,7 @@ async function chatLoop(conversation) {
       dimBorder: true,
     }
   );
-  
+
   console.log(helpBox);
 
   while (true) {
@@ -199,7 +185,6 @@ async function chatLoop(conversation) {
       },
     });
 
-    // Handle cancellation (Ctrl+C)
     if (isCancel(userInput)) {
       const exitBox = boxen(chalk.yellow("Chat session ended. Goodbye! 👋"), {
         padding: 1,
@@ -211,7 +196,6 @@ async function chatLoop(conversation) {
       process.exit(0);
     }
 
-    // Handle exit command
     if (userInput.toLowerCase() === "exit") {
       const exitBox = boxen(chalk.yellow("Chat session ended. Goodbye! 👋"), {
         padding: 1,
@@ -223,30 +207,23 @@ async function chatLoop(conversation) {
       break;
     }
 
-  
-  
+    await saveMessage(chatService, conversation.id, "user", userInput);
 
-    // Save user message
-    await saveMessage(conversation.id, "user", userInput);
-
-    // Get messages count before AI response
     const messages = await chatService.getMessages(conversation.id);
-    
-    // Get AI response with streaming and markdown rendering
-    const aiResponse = await getAIResponse(conversation.id);
 
-    // Save AI response
-    await saveMessage(conversation.id, "assistant", aiResponse);
+    const aiResponse = await getAIResponse(aiService, chatService, conversation.id);
 
-    // Update title if first exchange
-    await updateConversationTitle(conversation.id, userInput, messages.length);
+    await saveMessage(chatService, conversation.id, "assistant", aiResponse);
+
+    await updateConversationTitle(chatService, conversation.id, userInput, messages.length);
   }
 }
 
-// Main entry point
 export async function startChat(mode = "chat", conversationId = null) {
+  const aiService = new AIService();
+  const chatService = new ChatService();
+
   try {
-    // Display intro banner
     intro(
       boxen(chalk.bold.cyan("Byte AI Chat"), {
         padding: 1,
@@ -256,10 +233,9 @@ export async function startChat(mode = "chat", conversationId = null) {
     );
 
     const user = await getUserFromToken();
-    const conversation = await initConversation(user.id, conversationId, mode);
-    await chatLoop(conversation);
-    
-    // Display outro
+    const conversation = await initConversation(chatService, user.id, conversationId, mode);
+    await chatLoop(aiService, chatService, conversation);
+
     outro(chalk.green("✨ Thanks for chatting!"));
   } catch (error) {
     const errorBox = boxen(chalk.red(`❌ Error: ${error.message}`), {
