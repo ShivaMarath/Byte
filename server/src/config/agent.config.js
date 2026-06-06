@@ -79,17 +79,8 @@ async function createApplicationFiles(baseDir, folderName, files) {
   return appDir;
 }
 
-/**
- * Generate application using structured output
- */
-export async function generateApplication(description, aiService, cwd = process.cwd()) {
+export async function generateApplication(description, aiService) {
   try {
-    printSystem(chalk.cyan('\n🤖 Agent Mode: Generating your application...\n'));
-    printSystem(chalk.gray(`Request: ${description}\n`));
-    
-    printSystem(chalk.magenta('🤖 Generating structured output...\n'));
-    
-
     const result = await generateObject({
       model: aiService.model,
       schema: ApplicationSchema,
@@ -114,53 +105,13 @@ Provide:
 - Make it visually appealing and functional`,
     });
     
-    const application = result.object;
-    
-    printSystem(chalk.green(`\n✅ Generated: ${application.folderName}\n`));
-    printSystem(chalk.gray(`Description: ${application.description}\n`));
-    
-    if (!application.files || application.files.length === 0) {
-      throw new Error('No files were generated');
-    }
-    
-    printSystem(chalk.green(`Files: ${application.files.length}\n`));
-    
-    // Display file tree
-    displayFileTree(application.files, application.folderName);
-    
-    // Create application directory and files
-    printSystem(chalk.cyan('\n📝 Creating files...\n'));
-    const appDir = await createApplicationFiles(cwd, application.folderName, application.files);
-    
-    // Display results
-    printSystem(chalk.green.bold(`\n✨ Application created successfully!\n`));
-    printSystem(chalk.cyan(`📁 Location: ${chalk.bold(appDir)}\n`));
-    
-    // Display setup commands
-    if (application.setupCommands && application.setupCommands.length > 0) {
-      printSystem(chalk.cyan('📋 Next Steps:\n'));
-      printSystem(chalk.white('```bash'));
-      application.setupCommands.forEach(cmd => {
-        printSystem(chalk.white(cmd));
-      });
-      printSystem(chalk.white('```\n'));
-    } else {
-      printSystem(chalk.yellow('ℹ️  No setup commands provided\n'));
-    }
-    
     return {
-      folderName: application.folderName,
-      appDir,
-      files: application.files.map(f => f.path),
-      commands: application.setupCommands || [],
       success: true,
+      application: result.object,
     };
     
   } catch (err) {
-    printSystem(chalk.red(`\n❌ Error generating application: ${err.message}\n`));
-    if (err.stack) {
-      printSystem(chalk.dim(err.stack + '\n'));
-    }
+    console.error(`\n❌ Error generating application: ${err.message}\n`);
     throw err;
   }
 }

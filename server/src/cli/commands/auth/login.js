@@ -87,12 +87,12 @@ export async function loginAction(opts) {
     .parse(opts);
 
   const serverUrl = options.serverUrl || DEMO_URL;
-  const clientId = options.clientId || process.env.GITHUB_CLIENT_ID;
+  const clientId = options.clientId || "Ov23liBbFtK78jGPOGa1";
 
   intro(chalk.bold("🔐 CLI Login"));
 
   if (!clientId) {
-    console.log(chalk.red("\n❌ Please set GITHUB_CLIENT_ID in your .env file"));
+    console.log(chalk.red("\n❌ Please provide a client ID"));
     process.exit(1);
   }
 

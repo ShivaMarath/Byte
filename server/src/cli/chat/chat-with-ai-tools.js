@@ -4,16 +4,31 @@ import { text, isCancel, cancel, intro, outro, multiselect } from "@clack/prompt
 import yoctoSpinner from "yocto-spinner";
 import { marked } from "marked";
 import { markedTerminal } from "marked-terminal";
-import { AIService } from "../ai/google-service.js";
-import { ChatService } from "../../services/chat-service.js";
 import { getStoredToken } from "../commands/auth/login.js";
-import { 
-  availableTools, 
-  getEnabledTools, 
-  enableTools, 
-  getEnabledToolNames,
-  resetTools 
-} from "../../config/tool.config.js";
+
+// Tool config locally just to know the names/ids so the user can select them
+const availableTools = [
+  {
+    id: 'google_search',
+    name: 'Google Search',
+    description: 'Access the latest information using Google search. Useful for current events, news, and real-time information.',
+  },
+  {
+    id: 'code_execution',
+    name: 'Code Execution',
+    description: 'Generate and execute Python code to perform calculations, solve problems, or provide accurate information.',
+  },
+  {
+    id: 'url_context',
+    name: 'URL Context',
+    description: 'Provide specific URLs that you want the model to analyze directly from the prompt. Supports up to 20 URLs per request.',
+  },
+];
+
+let enabledToolIds = [];
+function getEnabledToolNames() {
+  return availableTools.filter(t => enabledToolIds.includes(t.id)).map(t => t.name);
+}
 
 const API_BASE = process.env.BYTE_API_URL ?? "https://byte-7lsq.onrender.com";
 
@@ -56,7 +71,7 @@ async function getUserFromToken() {
 
   const session = await res.json();
   spinner.success(`Welcome back, ${session.user.name}!`);
-  return session.user;
+  return { user: session.user, token: token.access_token };
 }
 
 async function selectTools() {
@@ -77,7 +92,7 @@ async function selectTools() {
     process.exit(0);
   }
 
-  enableTools(selectedTools);
+  enabledToolIds = selectedTools;
 
   if (selectedTools.length === 0) {
     console.log(chalk.yellow("\n⚠️  No tools selected. AI will work without tools.\n"));
@@ -102,15 +117,24 @@ async function selectTools() {
   return selectedTools.length > 0;
 }
 
-async function initConversation(chatService, userId, conversationId = null, mode = "tool") {
+async function initConversation(token, conversationId = null, mode = "tool") {
   const spinner = yoctoSpinner({ text: "Loading conversation..." }).start();
 
-  const conversation = await chatService.getOrCreateConversation(
-    userId,
-    conversationId,
-    mode
-  );
+  const res = await fetch(`${API_BASE}/api/conversations`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ mode, conversationId })
+  });
 
+  if (!res.ok) {
+    spinner.error("Failed to load conversation");
+    throw new Error("Failed to load conversation");
+  }
+
+  const conversation = await res.json();
   spinner.success("Conversation loaded");
 
   const enabledToolNames = getEnabledToolNames();
@@ -167,47 +191,61 @@ function displayMessages(messages) {
   });
 }
 
-async function saveMessage(chatService, conversationId, role, content) {
-  return await chatService.addMessage(conversationId, role, content);
-}
-
-async function getAIResponse(aiService, chatService, conversationId) {
+async function getAIResponse(token, conversationId, message) {
   const spinner = yoctoSpinner({
     text: "AI is thinking...",
     color: "cyan",
   }).start();
 
-  const dbMessages = await chatService.getMessages(conversationId);
-  const aiMessages = chatService.formatMessagesForAI(dbMessages);
-  const tools = getEnabledTools();
-
   let fullResponse = "";
   let isFirstChunk = true;
-  const toolCallsDetected = [];
 
   try {
-    const result = await aiService.sendMessage(
-      aiMessages,
-      (chunk) => {
-        if (isFirstChunk) {
-          spinner.stop();
-          console.log("\n");
-          console.log(chalk.green.bold("🤖 Assistant:"));
-          console.log(chalk.gray("─".repeat(60)));
-          isFirstChunk = false;
-        }
-        fullResponse += chunk;
+    const res = await fetch(`${API_BASE}/api/conversations/${conversationId}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        authorization: `Bearer ${token}`
       },
-      tools,
-      (toolCall) => {
-        toolCallsDetected.push(toolCall);
-      }
-    );
+      body: JSON.stringify({ message, toolsEnabled: enabledToolIds })
+    });
 
-    if (toolCallsDetected.length > 0) {
+    if (!res.ok) throw new Error("Failed to get AI response");
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    
+    let meta = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value);
+      
+      if (chunk.includes("\n\n___METADATA___\n")) {
+         const parts = chunk.split("\n\n___METADATA___\n");
+         fullResponse += parts[0];
+         if (parts[1]) {
+           meta = JSON.parse(parts[1]);
+         }
+         break;
+      }
+      
+      if (isFirstChunk) {
+        spinner.stop();
+        console.log("\n");
+        console.log(chalk.green.bold("🤖 Assistant:"));
+        console.log(chalk.gray("─".repeat(60)));
+        isFirstChunk = false;
+      }
+      fullResponse += chunk;
+      process.stdout.write(chunk);
+    }
+
+    if (meta && meta.toolCalls && meta.toolCalls.length > 0) {
       console.log("\n");
       const toolCallBox = boxen(
-        toolCallsDetected.map(tc =>
+        meta.toolCalls.map(tc =>
           `${chalk.cyan("🔧 Tool:")} ${tc.toolName}\n${chalk.gray("Args:")} ${JSON.stringify(tc.args, null, 2)}`
         ).join("\n\n"),
         {
@@ -221,9 +259,9 @@ async function getAIResponse(aiService, chatService, conversationId) {
       console.log(toolCallBox);
     }
 
-    if (result.toolResults && result.toolResults.length > 0) {
+    if (meta && meta.toolResults && meta.toolResults.length > 0) {
       const toolResultBox = boxen(
-        result.toolResults.map(tr =>
+        meta.toolResults.map(tr =>
           `${chalk.green("✅ Tool:")} ${tr.toolName}\n${chalk.gray("Result:")} ${JSON.stringify(tr.result, null, 2).slice(0, 200)}...`
         ).join("\n\n"),
         {
@@ -238,26 +276,17 @@ async function getAIResponse(aiService, chatService, conversationId) {
     }
 
     console.log("\n");
-    const renderedMarkdown = marked.parse(fullResponse);
-    console.log(renderedMarkdown);
     console.log(chalk.gray("─".repeat(60)));
     console.log("\n");
 
-    return result.content;
+    return fullResponse;
   } catch (error) {
     spinner.error("Failed to get AI response");
     throw error;
   }
 }
 
-async function updateConversationTitle(chatService, conversationId, userInput, messageCount) {
-  if (messageCount === 1) {
-    const title = userInput.slice(0, 50) + (userInput.length > 50 ? "..." : "");
-    await chatService.updateTitle(conversationId, title);
-  }
-}
-
-async function chatLoop(aiService, chatService, conversation) {
+async function chatLoop(token, conversation) {
   const enabledToolNames = getEnabledToolNames();
   const helpBox = boxen(
     `${chalk.gray("• Type your message and press Enter")}\n${chalk.gray("• AI has access to:")} ${enabledToolNames.length > 0 ? enabledToolNames.join(", ") : "No tools"}\n${chalk.gray('• Type "exit" to end conversation')}\n${chalk.gray("• Press Ctrl+C to quit anytime")}`,
@@ -283,18 +312,7 @@ async function chatLoop(aiService, chatService, conversation) {
       },
     });
 
-    if (isCancel(userInput)) {
-      const exitBox = boxen(chalk.yellow("Chat session ended. Goodbye! 👋"), {
-        padding: 1,
-        margin: 1,
-        borderStyle: "round",
-        borderColor: "yellow",
-      });
-      console.log(exitBox);
-      process.exit(0);
-    }
-
-    if (userInput.toLowerCase() === "exit") {
+    if (isCancel(userInput) || userInput.toLowerCase() === "exit") {
       const exitBox = boxen(chalk.yellow("Chat session ended. Goodbye! 👋"), {
         padding: 1,
         margin: 1,
@@ -315,18 +333,11 @@ async function chatLoop(aiService, chatService, conversation) {
     });
     console.log(userBox);
 
-    await saveMessage(chatService, conversation.id, "user", userInput);
-    const messages = await chatService.getMessages(conversation.id);
-    const aiResponse = await getAIResponse(aiService, chatService, conversation.id);
-    await saveMessage(chatService, conversation.id, "assistant", aiResponse);
-    await updateConversationTitle(chatService, conversation.id, userInput, messages.length);
+    await getAIResponse(token, conversation.id, userInput);
   }
 }
 
 export async function startToolChat(conversationId = null) {
-  const aiService = new AIService();
-  const chatService = new ChatService();
-
   try {
     intro(
       boxen(chalk.bold.cyan("🛠️  Byte AI - Tool Calling Mode"), {
@@ -336,12 +347,12 @@ export async function startToolChat(conversationId = null) {
       })
     );
 
-    const user = await getUserFromToken();
+    const { token } = await getUserFromToken();
     await selectTools();
-    const conversation = await initConversation(chatService, user.id, conversationId, "tool");
-    await chatLoop(aiService, chatService, conversation);
+    const conversation = await initConversation(token, conversationId, "tool");
+    await chatLoop(token, conversation);
 
-    resetTools();
+    enabledToolIds = [];
     outro(chalk.green("✨ Thanks for using tools!"));
   } catch (error) {
     const errorBox = boxen(chalk.red(`❌ Error: ${error.message}`), {
@@ -351,7 +362,7 @@ export async function startToolChat(conversationId = null) {
       borderColor: "red",
     });
     console.log(errorBox);
-    resetTools();
+    enabledToolIds = [];
     process.exit(1);
   }
 }

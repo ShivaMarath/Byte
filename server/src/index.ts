@@ -10,6 +10,14 @@ import cookieParser from "cookie-parser";
 
 const app = express();
 
+import { ChatService } from "./services/chat-service.js";
+import { AIService } from "./services/ai-service.js";
+import { generateApplication } from "./config/agent.config.js";
+import { getEnabledTools, enableTools, resetTools } from "./config/tool.config.js";
+
+const chatService = new ChatService();
+const aiService = new AIService();
+
 app.use(cookieParser());
 const port = 3005;
 
@@ -73,4 +81,114 @@ app.get("/device", async (req, res) => {
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
+});
+// API Routes for Chat and Agent
+
+app.post("/api/conversations", async (req, res) => {
+  try {
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+    
+    if (!session) {
+      return res.status(401).json({ error: "No active session" });
+    }
+
+    const { mode, conversationId } = req.body;
+    const conversation = await chatService.getOrCreateConversation(
+      session.user.id,
+      conversationId,
+      mode
+    );
+
+    return res.json(conversation);
+  } catch (error) {
+    console.error("Conversation error:", error);
+    return res.status(500).json({ error: "Failed to create conversation" });
+  }
+});
+
+app.post("/api/conversations/:id/messages", async (req, res) => {
+  try {
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+    
+    if (!session) {
+      return res.status(401).json({ error: "No active session" });
+    }
+
+    const { id } = req.params;
+    const { message, toolsEnabled } = req.body;
+
+    await chatService.addMessage(id, "user", message);
+
+    const dbMessages = await chatService.getMessages(id);
+    const aiMessages = chatService.formatMessagesForAI(dbMessages);
+    
+    let tools = undefined;
+    if (toolsEnabled && Array.isArray(toolsEnabled) && toolsEnabled.length > 0) {
+      enableTools(toolsEnabled);
+      tools = getEnabledTools();
+    } else {
+      resetTools();
+    }
+
+    // Set headers for chunked response
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    const onChunk = (chunk) => {
+      res.write(chunk);
+    };
+
+    let toolCallsDetected = [];
+    let toolResultsDetected = [];
+    const fullResponse = await aiService.sendMessage(
+      aiMessages,
+      onChunk,
+      tools,
+      (toolCall) => { toolCallsDetected.push(toolCall); }
+    );
+
+    await chatService.addMessage(id, "assistant", fullResponse.content);
+    
+    // We send a final structured delimiter to let the client know of tools
+    if (toolCallsDetected.length > 0 || (fullResponse.toolResults && fullResponse.toolResults.length > 0)) {
+      const meta = {
+        toolCalls: toolCallsDetected,
+        toolResults: fullResponse.toolResults || []
+      };
+      res.write("\n\n___METADATA___\n" + JSON.stringify(meta));
+    }
+    
+    res.end();
+  } catch (error) {
+    console.error("Message error:", error);
+    if (!res.headersSent) {
+      return res.status(500).json({ error: "Failed to send message" });
+    } else {
+      res.end();
+    }
+  }
+});
+
+app.post("/api/agent", async (req, res) => {
+  try {
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+    
+    if (!session) {
+      return res.status(401).json({ error: "No active session" });
+    }
+
+    const { description } = req.body;
+    const result = await generateApplication(description, aiService);
+
+    return res.json(result);
+  } catch (error) {
+    console.error("Agent error:", error);
+    return res.status(500).json({ error: "Failed to generate application" });
+  }
 });
