@@ -4,8 +4,6 @@ import { text, isCancel, intro, outro } from "@clack/prompts";
 import yoctoSpinner from "yocto-spinner";
 import { marked } from "marked";
 import { markedTerminal } from "marked-terminal";
-import { AIService } from "../ai/google-service.js";
-import { ChatService } from "../../services/chat-service.js";
 import { getStoredToken } from "../commands/auth/login.js";
 
 const API_BASE = process.env.BYTE_API_URL ?? "https://byte-7lsq.onrender.com";
@@ -49,18 +47,27 @@ async function getUserFromToken() {
 
   const session = await res.json();
   spinner.success(`Welcome back, ${session.user.name}!`);
-  return session.user;
+  return { user: session.user, token: token.access_token };
 }
 
-async function initConversation(chatService, userId, conversationId = null, mode = "chat") {
+async function initConversation(token, conversationId = null, mode = "chat") {
   const spinner = yoctoSpinner({ text: "Loading conversation..." }).start();
 
-  const conversation = await chatService.getOrCreateConversation(
-    userId,
-    conversationId,
-    mode
-  );
+  const res = await fetch(`${API_BASE}/api/conversations`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ mode, conversationId })
+  });
 
+  if (!res.ok) {
+    spinner.error("Failed to load conversation");
+    throw new Error("Failed to load conversation");
+  }
+
+  const conversation = await res.json();
   spinner.success("Conversation loaded");
 
   const conversationInfo = boxen(
@@ -112,24 +119,43 @@ function displayMessages(messages) {
   });
 }
 
-async function saveMessage(chatService, conversationId, role, content) {
-  return await chatService.addMessage(conversationId, role, content);
-}
-
-async function getAIResponse(aiService, chatService, conversationId) {
+async function getAIResponse(token, conversationId, message) {
   const spinner = yoctoSpinner({
     text: "AI is thinking...",
     color: "cyan",
   }).start();
 
-  const dbMessages = await chatService.getMessages(conversationId);
-  const aiMessages = chatService.formatMessagesForAI(dbMessages);
-
   let fullResponse = "";
   let isFirstChunk = true;
 
   try {
-    const result = await aiService.sendMessage(aiMessages, (chunk) => {
+    const res = await fetch(`${API_BASE}/api/conversations/${conversationId}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ message })
+    });
+
+    if (!res.ok) throw new Error("Failed to get AI response");
+    if (!res.body) throw new Error("ReadableStream not yet supported in this fetch implementation");
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value);
+      
+      // Filter out metadata chunk
+      if (chunk.includes("\n\n___METADATA___\n")) {
+         const parts = chunk.split("\n\n___METADATA___\n");
+         fullResponse += parts[0];
+         break;
+      }
+      
       if (isFirstChunk) {
         spinner.stop();
         console.log("\n");
@@ -138,29 +164,21 @@ async function getAIResponse(aiService, chatService, conversationId) {
         isFirstChunk = false;
       }
       fullResponse += chunk;
-    });
+      process.stdout.write(chunk);
+    }
 
     console.log("\n");
-    const renderedMarkdown = marked.parse(fullResponse);
-    console.log(renderedMarkdown);
     console.log(chalk.gray("─".repeat(60)));
     console.log("\n");
 
-    return result.content;
+    return fullResponse;
   } catch (error) {
     spinner.error("Failed to get AI response");
     throw error;
   }
 }
 
-async function updateConversationTitle(chatService, conversationId, userInput, messageCount) {
-  if (messageCount === 1) {
-    const title = userInput.slice(0, 50) + (userInput.length > 50 ? "..." : "");
-    await chatService.updateTitle(conversationId, title);
-  }
-}
-
-async function chatLoop(aiService, chatService, conversation) {
+async function chatLoop(token, conversation) {
   const helpBox = boxen(
     `${chalk.gray("• Type your message and press Enter")}\n${chalk.gray("• Markdown formatting is supported in responses")}\n${chalk.gray('• Type "exit" to end conversation')}\n${chalk.gray("• Press Ctrl+C to quit anytime")}`,
     {
@@ -185,18 +203,7 @@ async function chatLoop(aiService, chatService, conversation) {
       },
     });
 
-    if (isCancel(userInput)) {
-      const exitBox = boxen(chalk.yellow("Chat session ended. Goodbye! 👋"), {
-        padding: 1,
-        margin: 1,
-        borderStyle: "round",
-        borderColor: "yellow",
-      });
-      console.log(exitBox);
-      process.exit(0);
-    }
-
-    if (userInput.toLowerCase() === "exit") {
+    if (isCancel(userInput) || userInput.toLowerCase() === "exit") {
       const exitBox = boxen(chalk.yellow("Chat session ended. Goodbye! 👋"), {
         padding: 1,
         margin: 1,
@@ -207,22 +214,11 @@ async function chatLoop(aiService, chatService, conversation) {
       break;
     }
 
-    await saveMessage(chatService, conversation.id, "user", userInput);
-
-    const messages = await chatService.getMessages(conversation.id);
-
-    const aiResponse = await getAIResponse(aiService, chatService, conversation.id);
-
-    await saveMessage(chatService, conversation.id, "assistant", aiResponse);
-
-    await updateConversationTitle(chatService, conversation.id, userInput, messages.length);
+    await getAIResponse(token, conversation.id, userInput);
   }
 }
 
 export async function startChat(mode = "chat", conversationId = null) {
-  const aiService = new AIService();
-  const chatService = new ChatService();
-
   try {
     intro(
       boxen(chalk.bold.cyan("Byte AI Chat"), {
@@ -232,9 +228,9 @@ export async function startChat(mode = "chat", conversationId = null) {
       })
     );
 
-    const user = await getUserFromToken();
-    const conversation = await initConversation(chatService, user.id, conversationId, mode);
-    await chatLoop(aiService, chatService, conversation);
+    const { token } = await getUserFromToken();
+    const conversation = await initConversation(token, conversationId, mode);
+    await chatLoop(token, conversation);
 
     outro(chalk.green("✨ Thanks for chatting!"));
   } catch (error) {

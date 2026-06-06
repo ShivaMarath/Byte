@@ -2,10 +2,9 @@ import chalk from "chalk";
 import boxen from "boxen";
 import { text, isCancel, cancel, intro, outro, confirm } from "@clack/prompts";
 import yoctoSpinner from "yocto-spinner";
-import { AIService } from "../ai/google-service.js";
-import { ChatService } from "../../services/chat-service.js";
 import { getStoredToken } from "../commands/auth/login.js";
-import { generateApplication } from "../../config/agent.config.js";
+import fs from 'fs/promises';
+import path from 'path';
 
 const API_BASE = process.env.BYTE_API_URL ?? "https://byte-7lsq.onrender.com";
 
@@ -29,15 +28,23 @@ async function getUserFromToken() {
 
   const session = await res.json();
   spinner.success(`Welcome back, ${session.user.name}!`);
-  return session.user;
+  return { user: session.user, token: token.access_token };
 }
 
-async function initConversation(chatService, userId, conversationId = null) {
-  const conversation = await chatService.getOrCreateConversation(
-    userId,
-    conversationId,
-    "agent"
-  );
+async function initConversation(token, conversationId = null) {
+  const res = await fetch(`${API_BASE}/api/conversations`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ mode: "agent", conversationId })
+  });
+
+  if (!res.ok) {
+    throw new Error("Failed to load conversation");
+  }
+  const conversation = await res.json();
 
   const conversationInfo = boxen(
     `${chalk.bold("Conversation")}: ${conversation.title}\n` +
@@ -58,11 +65,58 @@ async function initConversation(chatService, userId, conversationId = null) {
   return conversation;
 }
 
-async function saveMessage(chatService, conversationId, role, content) {
-  return await chatService.addMessage(conversationId, role, content);
+function printSystem(message) {
+  console.log(message);
 }
 
-async function agentLoop(aiService, chatService, conversation) {
+function displayFileTree(files, folderName) {
+  printSystem(chalk.cyan('\n📂 Project Structure:'));
+  printSystem(chalk.white(`${folderName}/`));
+  
+  const filesByDir = {};
+  files.forEach(file => {
+    const parts = file.path.split('/');
+    const dir = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+    
+    if (!filesByDir[dir]) {
+      filesByDir[dir] = [];
+    }
+    filesByDir[dir].push(parts[parts.length - 1]);
+  });
+  
+  Object.keys(filesByDir).sort().forEach(dir => {
+    if (dir) {
+      printSystem(chalk.white(`├── ${dir}/`));
+      filesByDir[dir].forEach(file => {
+        printSystem(chalk.white(`│   └── ${file}`));
+      });
+    } else {
+      filesByDir[dir].forEach(file => {
+        printSystem(chalk.white(`├── ${file}`));
+      });
+    }
+  });
+}
+
+async function createApplicationFiles(baseDir, folderName, files) {
+  const appDir = path.join(baseDir, folderName);
+  
+  await fs.mkdir(appDir, { recursive: true });
+  printSystem(chalk.cyan(`\n📁 Created directory: ${folderName}/`));
+  
+  for (const file of files) {
+    const filePath = path.join(appDir, file.path);
+    const fileDir = path.dirname(filePath);
+    
+    await fs.mkdir(fileDir, { recursive: true });
+    await fs.writeFile(filePath, file.content, 'utf8');
+    printSystem(chalk.green(`  ✓ ${file.path}`));
+  }
+  
+  return appDir;
+}
+
+async function agentLoop(token, conversation) {
   const helpBox = boxen(
     `${chalk.cyan.bold("What can the agent do?")}\n\n` +
     `${chalk.gray("• Generate complete applications from descriptions")}\n` +
@@ -119,23 +173,46 @@ async function agentLoop(aiService, chatService, conversation) {
     });
     console.log(userBox);
 
-    await saveMessage(chatService, conversation.id, "user", userInput);
-
     try {
-      const result = await generateApplication(
-        userInput,
-        aiService,
-        process.cwd()
-      );
+      const spinner = yoctoSpinner({ text: "Generating structured output..." }).start();
+      const res = await fetch(`${API_BASE}/api/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ description: userInput })
+      });
+
+      if (!res.ok) {
+        throw new Error("Generation failed from server");
+      }
+      
+      const result = await res.json();
+      spinner.stop();
 
       if (result && result.success) {
-        const responseMessage =
-          `Generated application: ${result.folderName}\n` +
-          `Files created: ${result.files.length}\n` +
-          `Location: ${result.appDir}\n\n` +
-          `Setup commands:\n${result.commands.join("\n")}`;
-
-        await saveMessage(chatService, conversation.id, "assistant", responseMessage);
+        const application = result.application;
+        printSystem(chalk.green(`\n✅ Generated: ${application.folderName}\n`));
+        printSystem(chalk.gray(`Description: ${application.description}\n`));
+        printSystem(chalk.green(`Files: ${application.files.length}\n`));
+        
+        displayFileTree(application.files, application.folderName);
+        
+        printSystem(chalk.cyan('\n📝 Creating files...\n'));
+        const appDir = await createApplicationFiles(process.cwd(), application.folderName, application.files);
+        
+        printSystem(chalk.green.bold(`\n✨ Application created successfully!\n`));
+        printSystem(chalk.cyan(`📁 Location: ${chalk.bold(appDir)}\n`));
+        
+        if (application.setupCommands && application.setupCommands.length > 0) {
+          printSystem(chalk.cyan('📋 Next Steps:\n'));
+          printSystem(chalk.white('```bash'));
+          application.setupCommands.forEach(cmd => {
+            printSystem(chalk.white(cmd));
+          });
+          printSystem(chalk.white('```\n'));
+        }
 
         const continuePrompt = await confirm({
           message: chalk.cyan("Would you like to generate another application?"),
@@ -151,7 +228,6 @@ async function agentLoop(aiService, chatService, conversation) {
       }
     } catch (error) {
       console.log(chalk.red(`\n❌ Error: ${error.message}\n`));
-      await saveMessage(chatService, conversation.id, "assistant", `Error: ${error.message}`);
 
       const retry = await confirm({
         message: chalk.cyan("Would you like to try again?"),
@@ -166,9 +242,6 @@ async function agentLoop(aiService, chatService, conversation) {
 }
 
 export async function startAgentChat(conversationId = null) {
-  const aiService = new AIService();
-  const chatService = new ChatService();
-
   try {
     intro(
       boxen(
@@ -182,7 +255,7 @@ export async function startAgentChat(conversationId = null) {
       )
     );
 
-    const user = await getUserFromToken();
+    const { token } = await getUserFromToken();
 
     const shouldContinue = await confirm({
       message: chalk.yellow("⚠️  The agent will create files and folders in the current directory. Continue?"),
@@ -194,8 +267,8 @@ export async function startAgentChat(conversationId = null) {
       process.exit(0);
     }
 
-    const conversation = await initConversation(chatService, user.id, conversationId);
-    await agentLoop(aiService, chatService, conversation);
+    const conversation = await initConversation(token, conversationId);
+    await agentLoop(token, conversation);
 
     outro(chalk.green.bold("\n✨ Thanks for using Agent Mode!"));
   } catch (error) {
