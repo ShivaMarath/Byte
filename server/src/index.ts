@@ -138,17 +138,17 @@ app.post("/api/conversations/:id/messages", async (req, res) => {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Transfer-Encoding', 'chunked');
 
-    const onChunk = (chunk) => {
+    const onChunk = (chunk: string) => {
       res.write(chunk);
     };
 
-    let toolCallsDetected = [];
-    let toolResultsDetected = [];
-    const fullResponse = await aiService.sendMessage(
+    let toolCallsDetected: any[] = [];
+    let toolResultsDetected: any[] = [];
+    const fullResponse: any = await aiService.sendMessage(
       aiMessages,
       onChunk,
       tools,
-      (toolCall) => { toolCallsDetected.push(toolCall); }
+      (toolCall: any) => { toolCallsDetected.push(toolCall); }
     );
 
     await chatService.addMessage(id, "assistant", fullResponse.content);
